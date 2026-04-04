@@ -4,6 +4,8 @@ from discord.ext import commands
 import os
 import re
 from motor.motor_asyncio import AsyncIOMotorClient
+from aiohttp import web
+import asyncio
 
 # --- MongoDB Setup ------------------------------------------------
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -45,25 +47,17 @@ async def update_guild_config(guild_id: int, key: str, value):
     )
 
 async def increment_warnings(guild_id: int, user_id: int) -> dict:
-    """
-    Incremente le compteur d'avertissements.
-    Retourne le doc mis a jour : {total, post_kick}
-    - total    : nombre total de liens envoyes
-    - post_kick: liens envoyes APRES le premier kick (remis a 0 au kick)
-    """
     doc = await warnings_col.find_one_and_update(
         {"guild_id": guild_id, "user_id": user_id},
         {"$inc": {"total": 1, "post_kick": 1}},
         upsert=True,
         return_document=True,
     )
-    # find_one_and_update avec upsert peut retourner None sur creation initiale
     if doc is None:
         doc = await warnings_col.find_one({"guild_id": guild_id, "user_id": user_id})
     return doc
 
 async def reset_post_kick(guild_id: int, user_id: int):
-    """Remet le compteur post-kick a 0 apres un kick."""
     await warnings_col.update_one(
         {"guild_id": guild_id, "user_id": user_id},
         {"$set": {"post_kick": 0}},
@@ -149,14 +143,12 @@ async def check_message(content: str, guild_id: int) -> tuple[str | None, str]:
 # --- Translations -------------------------------------------------
 T = {
     "fr": {
-        # Avertissements dans le chat
         "ip_grabber_warn": "🚨 {mention}, vous avez envoyé un **IP Grabber** ! Votre message a été supprimé. ({count}/{threshold})",
         "custom_warn": "⚠️ {mention}, vous avez envoyé un **lien suspect** ! Votre message a été supprimé. ({count}/{threshold})",
         "kicked_msg": "🦵 {mention} a été **expulsé** du serveur après avoir envoyé {n} liens interdits.",
         "banned_msg": "🔨 {mention} a été **banni définitivement** pour envoi de liens interdits.",
         "kick_reason": "Envoi de liens interdits",
         "ban_reason": "Envoi de liens interdits",
-        # /config
         "config_title": "⚙️ Configuration — AntiSuspiciousBot",
         "config_desc": "Gérez les paramètres du bot pour ce serveur.",
         "config_lang_field": "🌐 Langue",
@@ -164,11 +156,9 @@ T = {
         "config_sec_field": "🛡️ Sécurité",
         "config_sec_value": "Gérer la protection anti-liens suspects",
         "config_footer": "AntiSuspiciousBot • Visible uniquement par vous",
-        # Boutons ConfigView
         "btn_language": "🌐 Langue",
         "btn_security": "🛡️ Sécurité",
         "btn_view_config": "📋 Voir la Config",
-        # SecurityView
         "sec_title": "🛡️ Sécurité",
         "sec_level": "Niveau",
         "sec_custom": "Liens bloqués personnalisés",
@@ -180,10 +170,8 @@ T = {
         "btn_ignore_channel": "🔇 Ignorer un salon",
         "btn_ignore_role": "🔕 Ignorer un rôle",
         "btn_remove_ignored": "✏️ Retirer une exception",
-        # Protection select
         "select_placeholder": "Choisir le niveau de protection…",
         "protection_set": "✅ Niveau de protection défini sur **{level}**.",
-        # Modals
         "modal_add_link_title": "Ajouter un lien bloqué",
         "modal_add_link_label": "Lien",
         "modal_add_link_placeholder": "ex: grabify.link ou https://example.com",
@@ -195,7 +183,6 @@ T = {
         "modal_id_label": "ID du salon",
         "modal_role_id_label": "ID du rôle",
         "modal_remove_id_label": "ID du salon ou du rôle",
-        # Réponses modals
         "custom_added": "✅ Lien `{link}` ajouté à la liste de blocage.",
         "custom_removed": "✅ Lien `{link}` retiré de la liste.",
         "custom_not_found": "❌ Lien `{link}` introuvable dans la liste.",
@@ -205,7 +192,6 @@ T = {
         "removed_not_found": "❌ ID `{iid}` introuvable dans les exceptions.",
         "no_link": "❌ Veuillez entrer un lien valide.",
         "invalid_id": "❌ ID invalide.",
-        # Vue config actuelle
         "current_config": (
             "📋 **Configuration actuelle**\n"
             "- Langue : `{lang}`\n"
@@ -217,14 +203,12 @@ T = {
         "none": "Aucun",
     },
     "en": {
-        # Chat warnings
         "ip_grabber_warn": "🚨 {mention}, you sent an **IP Grabber**! Your message has been deleted. ({count}/{threshold})",
         "custom_warn": "⚠️ {mention}, you sent a **suspicious link**! Your message has been deleted. ({count}/{threshold})",
         "kicked_msg": "🦵 {mention} has been **kicked** from the server after sending {n} censored links.",
         "banned_msg": "🔨 {mention} has been **permanently banned** for sending censored links.",
         "kick_reason": "Censored links sent",
         "ban_reason": "Censored links sent",
-        # /config
         "config_title": "⚙️ Configuration — AntiSuspiciousBot",
         "config_desc": "Manage bot settings for this server.",
         "config_lang_field": "🌐 Language",
@@ -232,11 +216,9 @@ T = {
         "config_sec_field": "🛡️ Security",
         "config_sec_value": "Manage suspicious link protection",
         "config_footer": "AntiSuspiciousBot • Only visible to you",
-        # Config buttons
         "btn_language": "🌐 Language",
         "btn_security": "🛡️ Security",
         "btn_view_config": "📋 View Config",
-        # SecurityView
         "sec_title": "🛡️ Security",
         "sec_level": "Level",
         "sec_custom": "Custom blocked links",
@@ -248,10 +230,8 @@ T = {
         "btn_ignore_channel": "🔇 Ignore channel",
         "btn_ignore_role": "🔕 Ignore role",
         "btn_remove_ignored": "✏️ Remove exception",
-        # Protection select
         "select_placeholder": "Choose protection level…",
         "protection_set": "✅ Protection level set to **{level}**.",
-        # Modals
         "modal_add_link_title": "Add custom blocked link",
         "modal_add_link_label": "Link",
         "modal_add_link_placeholder": "ex: grabify.link or https://example.com",
@@ -263,7 +243,6 @@ T = {
         "modal_id_label": "Channel ID",
         "modal_role_id_label": "Role ID",
         "modal_remove_id_label": "Channel or Role ID",
-        # Modal responses
         "custom_added": "✅ Link `{link}` added to block list.",
         "custom_removed": "✅ Link `{link}` removed from list.",
         "custom_not_found": "❌ Link `{link}` not found in the list.",
@@ -273,7 +252,6 @@ T = {
         "removed_not_found": "❌ ID `{iid}` not found in exceptions.",
         "no_link": "❌ Please enter a valid link.",
         "invalid_id": "❌ Invalid ID.",
-        # View config
         "current_config": (
             "📋 **Current configuration**\n"
             "- Language: `{lang}`\n"
@@ -287,12 +265,10 @@ T = {
 }
 
 def tl(_lang: str, key: str, **kwargs) -> str:
-    """Traduction synchrone avec une langue deja connue."""
     text = T.get(_lang, T["fr"]).get(key, key)
     return text.format(**kwargs)
 
 async def t(guild_id: int, key: str, **kwargs) -> str:
-    """Traduction asynchrone avec lookup de la langue en base."""
     gc = await get_guild_config(guild_id)
     lang = gc.get("language", "fr")
     return tl(lang, key, **kwargs)
@@ -347,7 +323,6 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # Supprimer le message
     try:
         await message.delete()
     except discord.Forbidden:
@@ -358,31 +333,24 @@ async def on_message(message: discord.Message):
     guild = message.guild
     member = message.author
 
-    # Incrementer les avertissements
     warn_doc = await increment_warnings(guild.id, member.id)
     total = warn_doc.get("total", 1)
     post_kick = warn_doc.get("post_kick", 1)
 
-    # Determiner si on est en mode "post-kick" (a deja ete kick)
     already_kicked = warn_doc.get("kicked", False)
 
     if already_kicked:
-        # Mode post-kick : on compte vers le ban
         threshold = BAN_THRESHOLD
         count = post_kick
     else:
-        # Mode normal : on compte vers le kick
         threshold = KICK_THRESHOLD
         count = total
 
-    # Envoyer l'avertissement avec compteur
     key = "ip_grabber_warn" if category == "ip_grabber" else "custom_warn"
     warn = tl(lang, key, mention=mention, count=count, threshold=threshold)
     await message.channel.send(warn)
 
-    # Verifier si on atteint le seuil
     if already_kicked and post_kick >= BAN_THRESHOLD:
-        # BAN
         try:
             ban_reason = tl(lang, "ban_reason")
             await guild.ban(member, reason=ban_reason, delete_message_days=0)
@@ -392,13 +360,11 @@ async def on_message(message: discord.Message):
             pass
 
     elif not already_kicked and total >= KICK_THRESHOLD:
-        # KICK
         try:
             kick_reason = tl(lang, "kick_reason")
             await guild.kick(member, reason=kick_reason)
             kick_msg = tl(lang, "kicked_msg", mention=mention, n=KICK_THRESHOLD)
             await message.channel.send(kick_msg)
-            # Marquer comme kick et remettre post_kick a 0
             await warnings_col.update_one(
                 {"guild_id": guild.id, "user_id": member.id},
                 {"$set": {"kicked": True, "post_kick": 0}},
@@ -477,7 +443,6 @@ class SecurityView(discord.ui.View):
         await interaction.response.send_modal(RemoveIgnoredModal(self.guild_id, self.lang))
 
     def set_labels(self):
-        """Applique les labels traduits apres la creation de la vue."""
         buttons = [c for c in self.children if isinstance(c, discord.ui.Button)]
         labels = [
             tl(self.lang, "btn_add_link"),
@@ -495,15 +460,6 @@ class ConfigView(discord.ui.View):
         super().__init__(timeout=180)
         self.guild_id = guild_id
         self.lang = lang
-        # Labels traduits
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                if child.custom_id and "lang" in child.custom_id:
-                    child.label = tl(lang, "btn_language")
-                elif child.custom_id and "sec" in child.custom_id:
-                    child.label = tl(lang, "btn_security")
-                elif child.custom_id and "cfg" in child.custom_id:
-                    child.label = tl(lang, "btn_view_config")
 
     @discord.ui.button(custom_id="lang", style=discord.ButtonStyle.secondary, row=0)
     async def lang_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -736,9 +692,28 @@ async def on_ready():
     )
 
 
+# --- HTTP Keep-Alive (UptimeRobot) --------------------------------
+async def handle_ping(request):
+    return web.Response(text="OK", status=200)
+
+async def start_webserver():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Web server démarré sur le port {port}")
+
+
 # --- Run ----------------------------------------------------------
 TOKEN = os.environ.get("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN not set in environment variables!")
 
-bot.run(TOKEN)
+async def main():
+    await start_webserver()
+    await bot.start(TOKEN)
+
+asyncio.run(main())
