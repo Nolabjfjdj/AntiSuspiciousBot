@@ -25,9 +25,8 @@ DEFAULT_CONFIG = {
     "ignored_roles": [],
 }
 
-# Seuils kick/ban
-KICK_THRESHOLD = 5   # kick apres 5 liens
-BAN_THRESHOLD = 3    # ban apres 3 liens supplementaires post-kick
+KICK_THRESHOLD = 5
+BAN_THRESHOLD = 3
 
 async def get_guild_config(guild_id: int) -> dict:
     doc = await guilds_col.find_one({"_id": guild_id})
@@ -335,7 +334,6 @@ async def on_message(message: discord.Message):
     warn_doc = await increment_warnings(guild.id, member.id)
     total = warn_doc.get("total", 1)
     post_kick = warn_doc.get("post_kick", 1)
-
     already_kicked = warn_doc.get("kicked", False)
 
     if already_kicked:
@@ -351,19 +349,15 @@ async def on_message(message: discord.Message):
 
     if already_kicked and post_kick >= BAN_THRESHOLD:
         try:
-            ban_reason = tl(lang, "ban_reason")
-            await guild.ban(member, reason=ban_reason, delete_message_days=0)
-            ban_msg = tl(lang, "banned_msg", mention=mention)
-            await message.channel.send(ban_msg)
+            await guild.ban(member, reason=tl(lang, "ban_reason"), delete_message_days=0)
+            await message.channel.send(tl(lang, "banned_msg", mention=mention))
         except discord.Forbidden:
             pass
 
     elif not already_kicked and total >= KICK_THRESHOLD:
         try:
-            kick_reason = tl(lang, "kick_reason")
-            await guild.kick(member, reason=kick_reason)
-            kick_msg = tl(lang, "kicked_msg", mention=mention, n=KICK_THRESHOLD)
-            await message.channel.send(kick_msg)
+            await guild.kick(member, reason=tl(lang, "kick_reason"))
+            await message.channel.send(tl(lang, "kicked_msg", mention=mention, n=KICK_THRESHOLD))
             await warnings_col.update_one(
                 {"guild_id": guild.id, "user_id": member.id},
                 {"$set": {"kicked": True, "post_kick": 0}},
@@ -382,17 +376,15 @@ class LanguageSelectView(discord.ui.View):
 
     @discord.ui.button(label="🇫🇷 Français", style=discord.ButtonStyle.primary)
     async def set_fr(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         await update_guild_config(self.guild_id, "language", "fr")
         embed = discord.Embed(description="✅ Langue définie sur **Français**.", color=0x57F287)
-        await interaction.edit_original_response(embed=embed, view=None)
+        await interaction.response.edit_message(embed=embed, view=None)
 
     @discord.ui.button(label="🇬🇧 English", style=discord.ButtonStyle.primary)
     async def set_en(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         await update_guild_config(self.guild_id, "language", "en")
         embed = discord.Embed(description="✅ Language set to **English**.", color=0x57F287)
-        await interaction.edit_original_response(embed=embed, view=None)
+        await interaction.response.edit_message(embed=embed, view=None)
 
 
 class ProtectionSelect(discord.ui.Select):
@@ -406,15 +398,13 @@ class ProtectionSelect(discord.ui.Select):
             discord.SelectOption(label="Custom Only", value="custom_only", emoji="⚙️",
                 description="Vos liens uniquement" if lang == "fr" else "Only your custom links"),
         ]
-        placeholder = tl(lang, "select_placeholder")
-        super().__init__(placeholder=placeholder, options=options)
+        super().__init__(placeholder=tl(lang, "select_placeholder"), options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         await update_guild_config(self.guild_id, "protection_level", self.values[0])
         labels = {"standard": "Standard 🛡️", "full": "Full Protection 🔒", "custom_only": "Custom Only ⚙️"}
         msg = await t(self.guild_id, "protection_set", level=labels.get(self.values[0], self.values[0]))
-        await interaction.followup.send(msg, ephemeral=True)
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class SecurityView(discord.ui.View):
@@ -465,7 +455,6 @@ class ConfigView(discord.ui.View):
 
     @discord.ui.button(custom_id="lang", style=discord.ButtonStyle.secondary, row=0)
     async def lang_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Pas de MongoDB ici, pas besoin de defer
         embed = discord.Embed(
             title="🌐 Langue / Language",
             description="Choisissez la langue / Choose language:",
@@ -475,7 +464,6 @@ class ConfigView(discord.ui.View):
 
     @discord.ui.button(custom_id="sec", style=discord.ButtonStyle.danger, row=0)
     async def security_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         gc = await get_guild_config(self.guild_id)
         lang = gc.get("language", "fr")
         level = gc.get("protection_level", "standard")
@@ -496,11 +484,10 @@ class ConfigView(discord.ui.View):
 
         view = SecurityView(self.guild_id, lang)
         view.set_labels()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(custom_id="cfg", style=discord.ButtonStyle.primary, row=1)
     async def view_cfg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         gc = await get_guild_config(self.guild_id)
         lang = gc.get("language", "fr")
         level = gc.get("protection_level", "standard")
@@ -517,7 +504,7 @@ class ConfigView(discord.ui.View):
             custom_count=len(custom),
             channels=ch_str, roles=role_str,
         )
-        await interaction.followup.send(msg, ephemeral=True)
+        await interaction.response.send_message(msg, ephemeral=True)
 
     def apply_labels(self):
         for child in self.children:
@@ -544,17 +531,16 @@ class AddLinkModal(discord.ui.Modal):
         self.add_item(self.link)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         raw = self.link.value.strip()
         if not raw:
-            await interaction.followup.send(tl(self.lang, "no_link"), ephemeral=True)
+            await interaction.response.send_message(tl(self.lang, "no_link"), ephemeral=True)
             return
         await guilds_col.update_one(
             {"_id": self.guild_id},
             {"$addToSet": {"custom_links": raw}},
             upsert=True,
         )
-        await interaction.followup.send(tl(self.lang, "custom_added", link=raw), ephemeral=True)
+        await interaction.response.send_message(tl(self.lang, "custom_added", link=raw), ephemeral=True)
 
 
 class RemoveLinkModal(discord.ui.Modal):
@@ -570,17 +556,13 @@ class RemoveLinkModal(discord.ui.Modal):
         self.add_item(self.link)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         raw = self.link.value.strip()
         result = await guilds_col.update_one(
             {"_id": self.guild_id},
             {"$pull": {"custom_links": raw}},
         )
-        if result.modified_count:
-            msg = tl(self.lang, "custom_removed", link=raw)
-        else:
-            msg = tl(self.lang, "custom_not_found", link=raw)
-        await interaction.followup.send(msg, ephemeral=True)
+        msg = tl(self.lang, "custom_removed" if result.modified_count else "custom_not_found", link=raw)
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class IgnoreChannelModal(discord.ui.Modal):
@@ -596,18 +578,17 @@ class IgnoreChannelModal(discord.ui.Modal):
         self.add_item(self.channel_id)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         try:
             cid = int(self.channel_id.value.strip())
         except ValueError:
-            await interaction.followup.send(tl(self.lang, "invalid_id"), ephemeral=True)
+            await interaction.response.send_message(tl(self.lang, "invalid_id"), ephemeral=True)
             return
         await guilds_col.update_one(
             {"_id": self.guild_id},
             {"$addToSet": {"ignored_channels": cid}},
             upsert=True,
         )
-        await interaction.followup.send(tl(self.lang, "channel_ignored", cid=cid), ephemeral=True)
+        await interaction.response.send_message(tl(self.lang, "channel_ignored", cid=cid), ephemeral=True)
 
 
 class IgnoreRoleModal(discord.ui.Modal):
@@ -623,18 +604,17 @@ class IgnoreRoleModal(discord.ui.Modal):
         self.add_item(self.role_id)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         try:
             rid = int(self.role_id.value.strip())
         except ValueError:
-            await interaction.followup.send(tl(self.lang, "invalid_id"), ephemeral=True)
+            await interaction.response.send_message(tl(self.lang, "invalid_id"), ephemeral=True)
             return
         await guilds_col.update_one(
             {"_id": self.guild_id},
             {"$addToSet": {"ignored_roles": rid}},
             upsert=True,
         )
-        await interaction.followup.send(tl(self.lang, "role_ignored", rid=rid), ephemeral=True)
+        await interaction.response.send_message(tl(self.lang, "role_ignored", rid=rid), ephemeral=True)
 
 
 class RemoveIgnoredModal(discord.ui.Modal):
@@ -650,29 +630,23 @@ class RemoveIgnoredModal(discord.ui.Modal):
         self.add_item(self.item_id)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         try:
             iid = int(self.item_id.value.strip())
         except ValueError:
-            await interaction.followup.send(tl(self.lang, "invalid_id"), ephemeral=True)
+            await interaction.response.send_message(tl(self.lang, "invalid_id"), ephemeral=True)
             return
         result = await guilds_col.update_one(
             {"_id": self.guild_id},
             {"$pull": {"ignored_channels": iid, "ignored_roles": iid}},
         )
-        if result.modified_count:
-            msg = tl(self.lang, "removed_ok", iid=iid)
-        else:
-            msg = tl(self.lang, "removed_not_found", iid=iid)
-        await interaction.followup.send(msg, ephemeral=True)
+        msg = tl(self.lang, "removed_ok" if result.modified_count else "removed_not_found", iid=iid)
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 # --- Slash Commands -----------------------------------------------
 @tree.command(name="config", description="Configure AntiSuspiciousBot for this server")
 @app_commands.default_permissions(manage_guild=True)
 async def config_cmd(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)  # repondre a Discord immediatement
-
     gid = interaction.guild_id
     gc = await get_guild_config(gid)
     lang = gc.get("language", "fr")
@@ -688,7 +662,7 @@ async def config_cmd(interaction: discord.Interaction):
 
     view = ConfigView(gid, lang)
     view.apply_labels()
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 # --- Ready --------------------------------------------------------
