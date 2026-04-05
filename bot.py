@@ -280,6 +280,18 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
+# --- Error Handler (pour voir les erreurs silencieuses) -----------
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    print(f"[ERREUR SLASH] {error}")
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+    except Exception as e:
+        print(f"[ERREUR HANDLER] {e}")
+
 # --- on_guild_join ------------------------------------------------
 @bot.event
 async def on_guild_join(guild: discord.Guild):
@@ -344,8 +356,7 @@ async def on_message(message: discord.Message):
         count = total
 
     key = "ip_grabber_warn" if category == "ip_grabber" else "custom_warn"
-    warn = tl(lang, key, mention=mention, count=count, threshold=threshold)
-    await message.channel.send(warn)
+    await message.channel.send(tl(lang, key, mention=mention, count=count, threshold=threshold))
 
     if already_kicked and post_kick >= BAN_THRESHOLD:
         try:
@@ -647,22 +658,28 @@ class RemoveIgnoredModal(discord.ui.Modal):
 @tree.command(name="config", description="Configure AntiSuspiciousBot for this server")
 @app_commands.default_permissions(manage_guild=True)
 async def config_cmd(interaction: discord.Interaction):
-    gid = interaction.guild_id
-    gc = await get_guild_config(gid)
-    lang = gc.get("language", "fr")
+    # defer() sans ephemeral pour eviter le bug "réfléchit bloqué"
+    await interaction.response.defer()
+    try:
+        gid = interaction.guild_id
+        gc = await get_guild_config(gid)
+        lang = gc.get("language", "fr")
 
-    embed = discord.Embed(
-        title=tl(lang, "config_title"),
-        description=tl(lang, "config_desc"),
-        color=0x5865F2,
-    )
-    embed.add_field(name=tl(lang, "config_lang_field"), value=tl(lang, "config_lang_value"), inline=False)
-    embed.add_field(name=tl(lang, "config_sec_field"), value=tl(lang, "config_sec_value"), inline=False)
-    embed.set_footer(text=tl(lang, "config_footer"))
+        embed = discord.Embed(
+            title=tl(lang, "config_title"),
+            description=tl(lang, "config_desc"),
+            color=0x5865F2,
+        )
+        embed.add_field(name=tl(lang, "config_lang_field"), value=tl(lang, "config_lang_value"), inline=False)
+        embed.add_field(name=tl(lang, "config_sec_field"), value=tl(lang, "config_sec_value"), inline=False)
+        embed.set_footer(text=tl(lang, "config_footer"))
 
-    view = ConfigView(gid, lang)
-    view.apply_labels()
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view = ConfigView(gid, lang)
+        view.apply_labels()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    except Exception as e:
+        print(f"[ERREUR config_cmd] {e}")
+        await interaction.followup.send(f"❌ Erreur interne : {e}", ephemeral=True)
 
 
 # --- Ready --------------------------------------------------------
