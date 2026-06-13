@@ -78,7 +78,7 @@ STANDARD_LINKS = [
 ]
 
 FULL_LINKS = STANDARD_LINKS + [
-    "iplogger.org", "iplogger.com", "maper.info", "iplogger.co",
+    "iplogger.org", "iplogger.com", "maper.info", "wl.gl", "ed.tc", "bc.ax", "iplogger.co",
     "2no.co", "yip.su", "iplogger.info", "iplog.co", "iplogger.cn",
     "grabify.org", "urlto.me", "onbit.pro", "snifferip.com", "unl.one",
     "discord-nitro.gift", "discordnitro.gift", "discordgift.site",
